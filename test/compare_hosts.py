@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Compares VapourSynth and AviSynth+ output of the same AutoLevels build (Windows, run with a VapourSynth Python).
 
-Both hosts read the same 8 bit y4m with BestSource; 10/16 bit inputs are made by bit shift in both hosts. Also checks
-that AviSynth+ packed RGB24 and planar RGB give the same result.
+Both hosts read the same 8 bit y4m with BestSource; 10/16 bit inputs are made by bit shift in both hosts. Every case
+runs limited and tagged full range (AviSynth+ _ColorRange=0, VapourSynth _Range=1). Also checks that AviSynth+ packed
+RGB24 and planar RGB give the same result.
 
 Usage: python compare_hosts.py --plugin build/AutoLevels.dll --work DIR CLIP.y4m...
 """
@@ -86,17 +87,24 @@ def main():
             vsrc = core.std.ShufflePlanes(src, 0, vs.GRAY) if vfmt in (vs.GRAY8, vs.GRAY16) else src
             if vfmt != vsrc.format.id:
                 vsrc = core.resize.Point(vsrc, format=vfmt)
-            for prm in PARAMS:
-                idx += 1
-                total += 1
-                avs = avs_frames(os.path.join(a.work, "h%04d.avs" % idx), 'LoadPlugin("%s")\nLoadPlugin("%s")\n'
-                                 'BSVideoSource("%s")\n%s\nAutoLevels(%s)\n' % (AVS_BS, fwd(a.plugin), fwd(clip),
-                                                                               conv, prm), depth)
-                vsb = vs_bytes(core.autolevels.AutoLevels(vsrc, **args_vs(prm)))
-                ok = hashlib.md5(avs).digest() == hashlib.md5(vsb).digest()
-                failures += not ok
-                print("%s clip%d %-10s AutoLevels(%s)%s" % ("ok  " if ok else "FAIL", ci, name, prm,
-                                                            "" if ok else " (%d vs %d bytes)" % (len(avs), len(vsb))))
+            # full range: each host gets its own property name (AviSynth+ _ColorRange=0, VapourSynth _Range=1)
+            for rng in ("limited", "full"):
+                full = rng == "full"
+                tag = '\npropSet("_ColorRange", 0)' if full else ""
+                vtag = core.std.SetFrameProps(vsrc, _Range=1) if full else vsrc
+                for prm in PARAMS:
+                    if full and prm.startswith("coring"):
+                        continue  # an error for full range input
+                    idx += 1
+                    total += 1
+                    avs = avs_frames(os.path.join(a.work, "h%04d.avs" % idx), 'LoadPlugin("%s")\nLoadPlugin("%s")\n'
+                                     'BSVideoSource("%s")\n%s%s\nAutoLevels(%s)\n' % (AVS_BS, fwd(a.plugin), fwd(clip),
+                                                                                     conv, tag, prm), depth)
+                    vsb = vs_bytes(core.autolevels.AutoLevels(vtag, **args_vs(prm)))
+                    ok = hashlib.md5(avs).digest() == hashlib.md5(vsb).digest()
+                    failures += not ok
+                    print("%s clip%d %-10s %-7s AutoLevels(%s)%s" % ("ok  " if ok else "FAIL", ci, name, rng, prm,
+                                                                     "" if ok else " (%d vs %d bytes)" % (len(avs), len(vsb))))
         # AviSynth+ packed RGB24 against planar RGB of the same pixels
         for prm in PARAMS:
             if prm.startswith("coring"):

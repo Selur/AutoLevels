@@ -135,12 +135,13 @@ All parameters are optional. The default is good for most of them.
   win over the statistics. 0–255, `input_low` < `input_high`.
 
 * **output_low**, **output_high** — the darkest and brightest level after the adjustment, 0–255. Defaults: 16 and
-  235 for YUV, 0 and 255 for RGB and for YUV with `coring=true`.
+  235 for limited range YUV, 0 and 255 for RGB, for full range YUV (see [Range](#range)) and for YUV with
+  `coring=true`.
 
 * **coring** — as in `Levels()`: the 16..235 luma range is expanded to 0..255 before the mapping and compressed back
   afterwards; input and output levels refer to the expanded range. With measured input levels the front-end
   remapping is cancelled, so the measured low and high cutoffs still map to 0.0 and 1.0. Default false (unlike
-  `Levels()`), ignored for RGB.
+  `Levels()`), ignored for RGB, an error for full range YUV.
 
 * **ignore**, **ignore_low**, **ignore_high** — fraction of the darkest (low) and brightest (high) pixels ignored when
   measuring, so outliers do not dominate. `ignore` sets both, `ignore_low`/`ignore_high` set one tail. Default 1.0/512
@@ -191,9 +192,24 @@ RGB is measured on Rec.601 luma (`0.299 R + 0.587 G + 0.114 B`) and the levels c
 YUV chroma is scaled around neutral with the luma gain. Alpha planes are copied unchanged.
 
 **High bit depth:** all level parameters (`input_*`, `output_*`, `sceneChgThresh`, `sc2th`, `minRng`) stay on the
-8 bit scale 0–255 and are scaled to the clip: YUV and Gray by bit shift (16 → 4096 at 16 bit, limited range
-convention), RGB to full range (255 → 65535). The statistics are measured at full precision, so a 16 bit result may
+8 bit scale 0–255 and are scaled to the clip: limited range YUV and Gray by bit shift (16 → 4096 at 16 bit),
+RGB and full range YUV and Gray to the full sample range (255 → 65535). The statistics are measured at full precision, so a 16 bit result may
 differ from the 8 bit result by a level or two where the 8 bit path rounds.
+
+## Range
+
+YUV and Gray frames are limited range (16–235) unless their frame properties say full range. Both property names are
+read in both hosts, the host's own name first:
+
+| Property | Full range | Limited range | Read first in |
+|---|---|---|---|
+| `_Range` | 1 | 0 | VapourSynth (R74 and later) |
+| `_ColorRange` | 0 | 1 | AviSynth+ (and older VapourSynth scripts) |
+
+A frame without either property counts as limited range, as in v0.12. Full range changes the defaults of
+`output_low`/`output_high` to 0/255 and the high bit depth scaling of the level parameters (see [Formats](#formats));
+given values still win, and `coring=true` fails. The range is read per frame. RGB is always full range. AviSynth+
+reads frame properties from interface 8; older versions always see limited range.
 
 ## Multithreading
 
@@ -225,6 +241,8 @@ clip = core.autolevels.AutoLevels(clip, frameOverrides="E8400-8405,S62908")
 - Border check: v0.12 compared only the side values (`border_l + border_r`) with the frame size, not the combined
   value with `border`, so a large `border` slipped through and broke the statistics. The effective borders are checked.
 - `filterRadius` < 0 is rejected (it made v0.12 divide by zero).
+- Full range YUV and Gray frames (see [Range](#range)) get 0/255 output defaults; v0.12 assumed limited range for
+  every YUV clip.
 - The `minRng` error message gave 48 as the lower limit; the check has always been 64.
 - An invalid `frameOverrides` letter names the offending entry in the error message.
 - AviSynth 2.5/2.6 (non-plus) and 32 bit builds are no longer provided; the plugin needs AviSynth+ (frame properties

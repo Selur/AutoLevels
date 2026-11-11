@@ -135,9 +135,9 @@ Engine::Engine(const Params& p, const Format& fmt, int num_frames)
   if (border_t_ + border_b_ >= fmt.height)
     fail("AutoLevels: the top+bottom border is greater than the image height");
 
-  // levels on the 8 bit scale; YUV scales by bit shift (limited range), RGB to full range
-  auto native = [&](int v) {
-    return fmt.isRGB() ? int((int64_t(v) * maxv_ * 2 + 255) / 510) : v * scale_;
+  // levels on the 8 bit scale; limited range YUV/Gray scales by bit shift, RGB and full range to the full range
+  auto native = [&](int v, bool full) {
+    return (full || fmt.isRGB()) ? int((int64_t(v) * maxv_ * 2 + 255) / 510) : v * scale_;
   };
   force_input_low_ = (p.input_low != kUndef);
   force_input_high_ = (p.input_high != kUndef);
@@ -151,11 +151,14 @@ Engine::Engine(const Params& p, const Format& fmt, int num_frames)
     fail("AutoLevels: output_low is not in range [0 ... 255]");
   if (p.output_high != kUndef && (p.output_high < 0 || p.output_high > 255))
     fail("AutoLevels: output_high is not in range [0 ... 255]");
-  input_low_ = force_input_low_ ? native(p.input_low) : 0;
-  input_high_ = force_input_high_ ? native(p.input_high) : maxv_;
-  // if coring is enabled, output_low/high refer to [0..255] before the range gets remapped to 16..235
-  output_low_ = native((p.output_low != kUndef) ? p.output_low : (fmt.isRGB() || coring_) ? 0 : 16);
-  output_high_ = native((p.output_high != kUndef) ? p.output_high : (fmt.isRGB() || coring_) ? 255 : 235);
+  for (int full = 0; full < 2; full++) {
+    input_low_[full] = force_input_low_ ? native(p.input_low, full) : 0;
+    input_high_[full] = force_input_high_ ? native(p.input_high, full) : maxv_;
+    // with coring, output_low/high refer to [0..255] before the range gets remapped to 16..235
+    const bool wide = fmt.isRGB() || coring_ || full;
+    output_low_[full] = native((p.output_low != kUndef) ? p.output_low : wide ? 0 : 16, full);
+    output_high_[full] = native((p.output_high != kUndef) ? p.output_high : wide ? 255 : 235, full);
+  }
 
   if (sc2th_ < 0 || sc2th_ > 256) fail("AutoLevels: 0 <= sc2th <= 256 (%d)", sc2th_);
   if (sc2perc_ < 0.0 || sc2perc_ >= 100.0) fail("AutoLevels: 0.0 <= sc2Perc < 100.0 (%.3f)", sc2perc_);
@@ -460,9 +463,14 @@ void Engine::adjust(const ConstFrame& src, const Frame& dst, int in_min, float g
 // process a frame
 // ---------------------------------------------------------------------------
 
-void Engine::process(int n, const Fetch& fetch, const ConstFrame& src, const Frame& dst) const {
+void Engine::process(int n, const Fetch& fetch, const ConstFrame& src, const Frame& dst, bool full_range) const {
   const bool hbd = fmt_.bits > 8;
   const double M = maxv_;
+  const int full = (full_range && fmt_.isYUV()) ? 1 : 0;
+  if (full && coring_)
+    fail("AutoLevels: coring is not possible for full range input (frame %d)", n);
+  const int input_low = input_low_[full], input_high = input_high_[full];
+  const int output_low = output_low_[full], output_high = output_high_[full];
   // Excluded frames (isExcluded) never get here: the hosts return the source frame itself.
 
   // averages of the minimum, maximum and mean luma over the nearby frames
@@ -514,8 +522,8 @@ void Engine::process(int n, const Fetch& fetch, const ConstFrame& src, const Fra
   }
 
   const bool do_coring = coring_ && fmt_.isYUV();
-  const double in_low = force_input_low_ ? double(input_low_) : ymin_avg;
-  const double in_high = force_input_high_ ? double(input_high_) : ymax_avg;
+  const double in_low = force_input_low_ ? double(input_low) : ymin_avg;
+  const double in_high = force_input_high_ ? double(input_high) : ymax_avg;
 
   // gamma curve: limit the mean to 1 .. 254 (8 bit scale) to avoid nasty numbers and division by zero
   double do_gamma =
@@ -545,10 +553,10 @@ void Engine::process(int n, const Fetch& fetch, const ConstFrame& src, const Fra
   }
 
   if (hbd)
-    adjust<uint16_t>(src, dst, int(adj_lo + 0.5), float(adj_gamma), int(adj_hi + 0.5), output_low_, output_high_,
+    adjust<uint16_t>(src, dst, int(adj_lo + 0.5), float(adj_gamma), int(adj_hi + 0.5), output_low, output_high,
                      do_coring);
   else
-    adjust<uint8_t>(src, dst, int(adj_lo + 0.5), float(adj_gamma), int(adj_hi + 0.5), output_low_, output_high_,
+    adjust<uint8_t>(src, dst, int(adj_lo + 0.5), float(adj_gamma), int(adj_hi + 0.5), output_low, output_high,
                     do_coring);
 
   if (!debug_) return;

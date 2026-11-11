@@ -142,6 +142,27 @@ def main():
     par = {n: tuple(bytes(f.result()[p]) for p in range(3)) for n, f in enumerate(reqs)}
     check(par == frames(al(src), range(LENGTH)), "parallel requests give the same result")
 
+    # full range: _Range=1 (VapourSynth) or _ColorRange=0 (older name) switches the default output to 0..255
+    limited_full_out = frames(al(src, output_low=0, output_high=255), range(LENGTH))
+    for props in ({"_Range": 1}, {"_ColorRange": 0}):
+        tagged = core.std.SetFrameProps(src, **props)
+        check(frames(al(tagged), range(LENGTH)) == limited_full_out,
+              "%s: default output equals output_low=0, output_high=255" % props)
+        check(frames(al(tagged, output_low=16, output_high=235), range(LENGTH)) == frames(out, range(LENGTH)),
+              "%s: explicit output levels win" % props)
+        expect_error(lambda: al(tagged, coring=True).get_frame(0), "%s: coring rejected" % props, "coring is not possible")
+    for props in ({"_Range": 0}, {"_ColorRange": 1}):
+        check(frames(al(core.std.SetFrameProps(src, **props)), range(LENGTH)) == frames(out, range(LENGTH)),
+              "%s: limited range keeps the default output" % props)
+    # at 16 bit, full range levels scale to the full sample range: identity input levels leave luma unchanged
+    full16 = core.std.SetFrameProps(pattern_clip(vs.YUV420P16), _Range=1)
+    check(samples(al(full16, input_low=0, input_high=255), 0, CUT) == samples(full16, 0, CUT),
+          "16 bit full range: input 0..255 and default output map to 0..65535")
+    lim16 = pattern_clip(vs.YUV420P16)
+    fixed = {"input_low": 20, "input_high": 200, "output_low": 0, "output_high": 255}
+    check(samples(al(lim16, **fixed), 0, CUT) != samples(al(full16, **fixed), 0, CUT),
+          "16 bit: limited range scales levels by bit shift, full range to the full sample range")
+
     # formats
     for fmt in (vs.GRAY8, vs.YUV444P8, vs.YUV422P8, vs.YUV410P8, vs.YUV411P8, vs.RGB24, vs.YUV420P10, vs.GRAY16,
                 vs.RGB48):

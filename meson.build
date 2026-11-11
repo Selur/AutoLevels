@@ -1,7 +1,7 @@
 project('AutoLevels', 'cpp',
   default_options : ['buildtype=release', 'b_ndebug=if-release', 'cpp_std=c++17'],
   meson_version : '>=0.64.0',
-  version : '1.0.0'
+  version : '1.1.0'
 )
 
 core_sources = ['src/core/autolevels.cpp', 'src/core/text.cpp']

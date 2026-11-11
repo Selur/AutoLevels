@@ -59,8 +59,13 @@ const VSFrame* VS_CC getFrame(int n, int reason, void* instance, void**, VSFrame
     out.data[i] = vsapi->getWritePtr(dst, i);
     out.stride[i] = vsapi->getStride(dst, i);
   }
+  // range of this frame: _Range (1 full, 0 limited), else _ColorRange (0 full, 1 limited); missing means limited
+  const VSMap* props = vsapi->getFramePropertiesRO(src);
+  int err = 0;
+  bool full_range = vsapi->mapGetInt(props, "_Range", 0, &err) == 1;
+  if (err) full_range = vsapi->mapGetInt(props, "_ColorRange", 0, &err) == 0 && !err;
   try {
-    d->engine->process(n, fetch, read(src), out);
+    d->engine->process(n, fetch, read(src), out, full_range);
   } catch (const std::exception& e) {
     vsapi->setFilterError(e.what(), ctx);
     vsapi->freeFrame(src);

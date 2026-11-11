@@ -42,7 +42,7 @@ class AutoLevelsAvs : public GenericVideoFilter {
       return r;
     };
     try {
-      engine_->process(n, fetch, readFrame(src), writeFrame(dst));
+      engine_->process(n, fetch, readFrame(src), writeFrame(dst), fullRange(src, env));
     } catch (const std::exception& e) {
       env->ThrowError("%s", e.what());
     }
@@ -55,6 +55,16 @@ class AutoLevelsAvs : public GenericVideoFilter {
   }
 
  private:
+  // range of a frame: _ColorRange (0 full, 1 limited), else _Range (1 full, 0 limited); missing means limited
+  bool fullRange(const PVideoFrame& f, IScriptEnvironment* env) const {
+    if (!has_v8_) return false;
+    const AVSMap* props = env->getFramePropsRO(f);
+    int err = 0;
+    const int64_t color_range = env->propGetInt(props, "_ColorRange", 0, &err);
+    if (!err) return color_range == 0;
+    return env->propGetInt(props, "_Range", 0, &err) == 1 && !err;
+  }
+
   int planes(int out[4]) const {
     switch (fmt_.layout) {
       case Layout::PlanarYUV:

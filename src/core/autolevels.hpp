@@ -90,7 +90,8 @@ class Engine {
   void sourceRange(int n, int& first, int& last) const;
   // Writes output frame n into dst (every plane); src is source frame n. Thread-safe.
   // Not for excluded frames: the host returns the source frame for those.
-  void process(int n, const Fetch& fetch, const ConstFrame& src, const Frame& dst) const;
+  // full_range: the frame's range property says full range (YUV/Gray only; RGB is always full range).
+  void process(int n, const Fetch& fetch, const ConstFrame& src, const Frame& dst, bool full_range) const;
 
  private:
   struct Stats {
@@ -127,7 +128,8 @@ class Engine {
   bool autogamma_;
   double midpoint_;
   bool autolevel_;
-  int input_low_, input_high_, output_low_, output_high_;  // native scale
+  // native scale; index 0 limited, 1 full range (equal for RGB)
+  int input_low_[2], input_high_[2], output_low_[2], output_high_[2];
   bool force_input_low_, force_input_high_;
   bool coring_;
   double ignore_low_, ignore_high_;
